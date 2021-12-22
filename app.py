@@ -12,7 +12,7 @@ app.users = {}
 app.id_count = 1
 app.tweets = []
 #새로운 수정 사항?
-
+#그럼 이렇게 바꾸면 또 빨간색 될거야?
 @app.route("/ping", methods = ['GET'])
 def ping():
         return "pong"
