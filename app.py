@@ -23,6 +23,9 @@ app.users = {}
 #다만 이것은 큰 시스템 안에서는 오류를 일으킬 소지가 있다.
 #제대로된 데이터베이스 시스템을 사용하면서 이 문제는 해결 될 것이다
 app.id_count = 1
+
+#tweet 은 list 의 형태로 보관되어 있다.
+#사용될 때에는 list 의 dictionary 의 형태로 보관될 것이다.
 app.tweets = []
 
 #팔로우 관계를 정리할 데이터베이스?
@@ -108,7 +111,6 @@ def follow():
 def unfollow():
 
         #전반적으로 follow 와 유사한 동작인데 add 대신 discard 한다.
-
         payload = request.json
         user_id = int(payload['id'])
         user_id_to_unfollow = int(payload['unfollow'])
@@ -118,7 +120,32 @@ def unfollow():
 
         return jsonify(user)
 
-#새로운 수정사항?
+@app.route("/timeline/<int:user_id>",methods=['GET'])
+def timeline(user_id):
+        if user_id not in app.users:
+                return '사용자가 존재하지 않습니다',400
+
+        #user_id 의 팔로우 목록을 받는다.
+        #목록의 사용자들의 tweet 들을 list 에 로드하여 리턴한다.
+
+        #follow 딕셔너리의 value 는 하나의 set
+        follow_list = app.users[user_id].get('follow',set())
+
+        #본인의 트윗도 확인하기 위해 스스로를 추가
+        follow_list.add(user_id)
+
+        #follow list 를 순회하면서, app.tweets['id'] 와 일치하면 더해지는식
+        timeline = [tweet for tweet in app.tweets if tweet['user_id'] in follow_list ]
+
+        return jsonify({
+                'user_id':user_id,
+                'timeline' : timeline
+        })
+
+
+
+
+
 
 if __name__ =='__main__':
         app.run()
