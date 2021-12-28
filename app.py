@@ -118,6 +118,7 @@ def unfollow():
 
         return jsonify(user)
 
+#새로운 수정사항?
 
 if __name__ =='__main__':
         app.run()
