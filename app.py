@@ -39,23 +39,24 @@ def create_app(test_config=None):
 
                 #execute : SQL 코드를 실행시킨다.
                 #INSERT 명령어를 사용한다
+                #VALUES 가 new_user(json타입)으로부터 참조되는 것 주의!
                 new_user_id = app.database.execute(text("""
                    INSERT INTO users(
                       name,
                       email,
                       profile,
                       hashed_password
-                      --VALUES 가 new_user(json타입)으로부터 참조되는 것 주의!
+                      
                 ) VALUES (
                       :name,
                       :email,
                       :profile,
                       :password
                       )
-                    --lastrowid 는 auto increment 가 실행된 로우의 값을 return 한다
-                    --이때 auto increment 가 있었던 값은 miniter-users 의 id 이겠지
+                    
                 """),new_user).lastrowid
-
+                #lastrowid 는 auto increment 가 실행된 로우의 값을 return 한다
+                #이때 auto increment 가 있었던 값은 miniter-users 의 id 이겠지
                 #http 응답에 사용하기 위해, 추가된 로우를 참조한다.
                 #SELECT 명령어로 하여금 READ 한다
                 row = current_app.database.execute(text("""
@@ -65,7 +66,7 @@ def create_app(test_config=None):
                       email,
                       profile
                    FROM users
-                   --WHERE 로 하여금 새로 삽입된 id 의 user 를 특정하여 READ 한다. 
+                    
                    WHERE id =:user_id
                 """),{
                    'user_id' : new_user_id
@@ -80,9 +81,8 @@ def create_app(test_config=None):
                 }if row else None
                 return jsonify(created_user)
 
-        return app
 
-        @app.route('/tweet',methods=['POST'])
+        @app.route("/tweet",methods=['POST'])
         def tweet():
             user_tweet = request.json
             tweet = user_tweet['tweet']
@@ -101,6 +101,37 @@ def create_app(test_config=None):
             """),user_tweet)
 
             return '',200
+        @app.route('/timeline/<int:user_id>',methods=['GET'])
+        def timeline(user_id):
+            rows = app.database.execute(text("""
+               SELECT
+                  t.user_id
+                  t.tweet
+               FROM tweets t
+               LEFT JOIN users_follow_list ufl 
+               ON ufl.user_id =:user_id
+               WHERE t.user_id =:user_id
+               OR t.user_id = ufl.follow_user_id
+            """),{
+           'user_id' : user_id
+           }).fetchall()
+
+            timeline = [{
+                'user_id':row['user_id'],
+                'timeline':row['tweet']
+            } for row in rows]
+
+            return jsonify({
+                'user_id':user_id,
+                'timeline':timeline
+
+            })
+
+
+
+
+        return app
+
 
 
 
