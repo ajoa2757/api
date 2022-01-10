@@ -1,4 +1,3 @@
-#필요한 패키지들 import
 from flask      import Flask, request, jsonify, current_app
 from flask.json import JSONEncoder
 from sqlalchemy import create_engine, text
@@ -13,126 +12,146 @@ class CustomJSONEncoder(JSONEncoder):
 
         return JSONEncoder.default(self, obj)
 
+def get_user(user_id):
+    user = current_app.database.execute(text("""
+        SELECT 
+            id,
+            name,
+            email,
+            profile
+        FROM users
+        WHERE id = :user_id
+    """), {
+        'user_id' : user_id
+    }).fetchone()
 
-#자동으로 이 함수를 통해서 Flask 가 run 된다.
-#단위 테스트라는 과정에서 테스트용 데이터베이스를 사용하기 위해, text_config 라는 인자가 존재한다
-#단위 테스트에 대해서는 나중에 더 알아보자
-def create_app(test_config=None):
-        app = Flask(__name__)
+    return {
+        'id'      : user['id'],
+        'name'    : user['name'],
+        'email'   : user['email'],
+        'profile' : user['profile']
+    } if user else None
 
-        # test_config 를 사용하지 않는 상황일 경우 config.py 로부터 읽는다.
-        if test_config is None:
-                app.config.from_pyfile("config.py")
-        else:
-                app.config.update(test_config)
+def insert_user(user):
+    return current_app.database.execute(text("""
+        INSERT INTO users (
+            name,
+            email,
+            profile,
+            hashed_password
+        ) VALUES (
+            :name,
+            :email,
+            :profile,
+            :password
+        )
+    """), user).lastrowid
 
-        # test_config 를 사용하지 않는 상황일 경우 config.py 로부터 읽는다.
-        database = create_engine(app.config['DB_URL'],encoding = 'utf-8',max_overflow=0)
-        app.database = database
+def insert_tweet(user_tweet):
+    return current_app.database.execute(text("""
+        INSERT INTO tweets (
+            user_id,
+            tweet
+        ) VALUES (
+            :id,
+            :tweet
+        )
+    """), user_tweet).rowcount
 
-        #create_app 안에 정의된 sign-up 엔드포인트
-        @app.route("/sign-up",methods=['POST'])
-        def sign_up():
+def insert_follow(user_follow):
+    return current_app.database.execute(text("""
+        INSERT INTO users_follow_list (
+            user_id,
+            follow_user_id
+        ) VALUES (
+            :id,
+            :follow
+        )
+    """), user_follow).rowcount
 
-                #5장 미니터에서와 같은 방식으로 데이터 받아야 함
-                new_user = request.json
+def insert_unfollow(user_unfollow):
+    return current_app.database.execute(text("""
+        DELETE FROM users_follow_list
+        WHERE user_id = :id
+        AND follow_user_id = :unfollow
+    """), user_unfollow).rowcount
 
-                #execute : SQL 코드를 실행시킨다.
-                #INSERT 명령어를 사용한다
-                #VALUES 가 new_user(json타입)으로부터 참조되는 것 주의!
-                new_user_id = app.database.execute(text("""
-                   INSERT INTO users(
-                      name,
-                      email,
-                      profile,
-                      hashed_password
-                      
-                ) VALUES (
-                      :name,
-                      :email,
-                      :profile,
-                      :password
-                      )
-                    
-                """),new_user).lastrowid
-                #lastrowid 는 auto increment 가 실행된 로우의 값을 return 한다
-                #이때 auto increment 가 있었던 값은 miniter-users 의 id 이겠지
-                #http 응답에 사용하기 위해, 추가된 로우를 참조한다.
-                #SELECT 명령어로 하여금 READ 한다
-                row = current_app.database.execute(text("""
-                   SELECT 
-                      id,
-                      name,
-                      email,
-                      profile
-                   FROM users
-                    
-                   WHERE id =:user_id
-                """),{
-                   'user_id' : new_user_id
-                }).fetchone()
+def get_timeline(user_id):
+    timeline = current_app.database.execute(text("""
+        SELECT 
+            t.user_id,
+            t.tweet
+        FROM tweets t
+        LEFT JOIN users_follow_list ufl 
+        ON ufl.user_id = :user_id
+        WHERE t.user_id = :user_id 
+        OR t.user_id = ufl.follow_user_id
+    """), {
+        'user_id' : user_id
+    }).fetchall()
 
-                #row 에서 읽은 정보를 딕셔너리로 변환한다.
-                created_user = {
-                        'id' : row['id'],
-                        'name' : row['name'],
-                        'email' : row['email'],
-                        'profile' : row['profile']
-                }if row else None
-                return jsonify(created_user)
+    return [{
+        'user_id' : tweet['user_id'],
+        'tweet'   : tweet['tweet']
+    } for tweet in timeline]
 
+def create_app(test_config = None):
+    app = Flask(__name__)
 
-        @app.route("/tweet",methods=['POST'])
-        def tweet():
-            user_tweet = request.json
-            tweet = user_tweet['tweet']
+    app.json_encoder = CustomJSONEncoder
 
-            if len(tweet)>300:
-                    return '300자를 포함했습니다',400
+    if test_config is None:
+        app.config.from_pyfile("config.py")
+    else:
+        app.config.update(test_config)
 
-            app.database.execute(text("""
-               INSERT INTO tweets(
-                  user_id,
-                  tweet
-               ) VALUES (
-                  :id,
-                  :tweet
-               )
-            """),user_tweet)
+    database     = create_engine(app.config['DB_URL'], encoding = 'utf-8', max_overflow = 0)
+    app.database = database
 
-            return '',200
-        @app.route('/timeline/<int:user_id>',methods=['GET'])
-        def timeline(user_id):
-            rows = app.database.execute(text("""
-               SELECT
-                  t.user_id
-                  t.tweet
-               FROM tweets t
-               LEFT JOIN users_follow_list ufl 
-               ON ufl.user_id =:user_id
-               WHERE t.user_id =:user_id
-               OR t.user_id = ufl.follow_user_id
-            """),{
-           'user_id' : user_id
-           }).fetchall()
+    @app.route("/ping", methods=['GET'])
+    def ping():
+        return "pong"
 
-            timeline = [{
-                'user_id':row['user_id'],
-                'timeline':row['tweet']
-            } for row in rows]
+    @app.route("/sign-up", methods=['POST'])
+    def sign_up():
+        new_user    = request.json
+        new_user_id = insert_user(new_user)
+        new_user    = get_user(new_user_id)
 
-            return jsonify({
-                'user_id':user_id,
-                'timeline':timeline
+        return jsonify(new_user)
 
-            })
+    @app.route('/tweet', methods=['POST'])
+    def tweet():
+        user_tweet = request.json
+        tweet      = user_tweet['tweet']
 
+        if len(tweet) > 300:
+            return '300자를 초과했습니다', 400
 
+        insert_tweet(user_tweet)
 
+        return '', 200
 
-        return app
+    @app.route('/follow', methods=['POST'])
+    def follow():
+        payload = request.json
+        insert_follow(payload)
 
+        return '', 200
 
+    @app.route('/unfollow', methods=['POST'])
+    def unfollow():
+        payload = request.json
+        insert_unfollow(payload)
 
+        return '', 200
 
+    @app.route('/timeline/<int:user_id>', methods=['GET'])
+    def timeline(user_id):
+        return jsonify({
+            'user_id'  : user_id,
+            'timeline' : get_timeline(user_id)
+        })
+
+    return app
 
