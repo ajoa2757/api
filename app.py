@@ -1,9 +1,12 @@
-from flask      import Flask, request, jsonify, current_app
+import jwt
+import bcrypt
+
+from flask      import Flask, request, jsonify, current_app, Response, g
 from flask.json import JSONEncoder
 from sqlalchemy import create_engine, text
 from datetime   import datetime, timedelta
-import bcrypt
-import jwt
+from functools  import wraps
+
 
 
 ## Default JSON encoder는 set를 JSON으로 변환할 수 없다.
@@ -16,6 +19,29 @@ class CustomJSONEncoder(JSONEncoder):
 
         return JSONEncoder.default(self, obj)
 
+def login_required(f):
+    @wraps(f)
+    def decorated_function(*args,**kwargs):
+        access_token = request.headers.get('Authorization')
+        if access_token is not None:
+            try:
+                payload = jwt.decode(access_token,current_app.config['JWT_SECRET-KEY'],'HS256')
+            except jwt.InvalidTokenError:
+                payload = None
+
+            if payload is None: return Response(status=401)
+
+            user_id = payload['user_id']
+            g.user_id = user_id
+            g.user = get_user(user_id) if user_id else None
+
+        else:
+            return Response(status = 401)
+
+        return f(*args,**kwargs)
+    return decorated_function
+
+
 def get_user(user_id):
     user = current_app.database.execute(text("""
         SELECT 
@@ -23,7 +49,7 @@ def get_user(user_id):
             name,
             email,
             profile
-        FROM users
+        FROM users  
         WHERE id = :user_id
     """), {
         'user_id' : user_id
@@ -158,8 +184,10 @@ def create_app(test_config = None):
             return '',401
 
     @app.route('/tweet', methods=['POST'])
+    @login_required
     def tweet():
         user_tweet = request.json
+        user_tweet['id'] = g.user_id
         tweet      = user_tweet['tweet']
 
         if len(tweet) > 300:
@@ -170,6 +198,7 @@ def create_app(test_config = None):
         return '', 200
 
     @app.route('/follow', methods=['POST'])
+    @login_required
     def follow():
         payload = request.json
         insert_follow(payload)
@@ -177,6 +206,7 @@ def create_app(test_config = None):
         return '', 200
 
     @app.route('/unfollow', methods=['POST'])
+    @login_required
     def unfollow():
         payload = request.json
         insert_unfollow(payload)
